@@ -4,11 +4,10 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from datetime import datetime
 
 # 页面基础配置
 st.set_page_config(
-    page_title="标普500均值回归盘后抄底决策终端",
+    page_title="标普500均值回归盘后抄底终端",
     page_icon="📈",
     layout="wide"
 )
@@ -33,15 +32,15 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-@st.cache_data(ttl=3600)  # 缓存1小时，保证获取最新数据
+# 1. 缓存缩短至 300 秒（5分钟）
+@st.cache_data(ttl=300)
 def fetch_spx_data():
-    # 抓取标普500近5年日K线数据
-    ticker = "^GSPC"
-    df = yf.download(ticker, period="5y", interval="1d")
+    # 使用 Ticker.history 获取最新行情（比 download 更新更及时）
+    spx = yf.Ticker("^GSPC")
+    df = spx.history(period="5y", interval="1d")
     
-    # 兼容多层索引
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
+    if df.empty:
+        raise ValueError("未能获取到数据，请检查网络或稍后再试。")
         
     df = df[['Close', 'High', 'Low', 'Open', 'Volume']].dropna()
     
@@ -65,6 +64,16 @@ def fetch_spx_data():
     
     return df.dropna()
 
+# 顶部栏设置：标题 + 手动刷新按钮
+col_head1, col_head2 = st.columns([4, 1])
+with col_head1:
+    st.title("📈 标普500 (S&P 500) 均值回归盘后抄底终端")
+with col_head2:
+    st.write("") # 间距对齐
+    if st.button("🔄 强制刷新最新数据", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
+
 # 加载数据
 try:
     df = fetch_spx_data()
@@ -77,9 +86,7 @@ try:
     prev_close = df['Close'].iloc[-2]
     daily_change = ((latest_close - prev_close) / prev_close) * 100
 
-    # 头部标题与更新时间
-    st.title("📈 标普500 (S&P 500) 均值回归盘后抄底终端")
-    st.caption(f"数据更新时间（美股盘后最新交易日）: **{latest_date}** | 数据源: Yahoo Finance")
+    st.caption(f"数据源最新交易日: **{latest_date}** （若逢美股周末/节假日休市，展示数据自动保持为上一交易日收盘价）")
 
     # --- 信号诊断逻辑 ---
     if latest_bias <= -15.0:
@@ -131,14 +138,11 @@ try:
             subplot_titles=("S&P 500 价格与 200日均线", "MA200 偏离度 (%) & 抄底阈值界线")
         )
 
-        # 1. 主图：价格与 200 日均线
         fig.add_trace(go.Scatter(x=df.index, y=df['Close'], name="S&P 500 收盘价", line=dict(color='#00f2fe', width=1.5)), row=1, col=1)
         fig.add_trace(go.Scatter(x=df.index, y=df['SMA200'], name="200日均线", line=dict(color='#ff9900', width=2, dash='dot')), row=1, col=1)
 
-        # 2. 副图：偏离度 BIAS 200
         fig.add_trace(go.Scatter(x=df.index, y=df['BIAS200'], name="偏离度 (BIAS %)", line=dict(color='#e0e0e0', width=1.2)), row=2, col=1)
         
-        # 添加抄底阈值线
         fig.add_hline(y=-5, line_dash="dash", line_color="green", annotation_text="1级抄底 (-5%)", row=2, col=1)
         fig.add_hline(y=-10, line_dash="dash", line_color="orange", annotation_text="2级抄底 (-10%)", row=2, col=1)
         fig.add_hline(y=-15, line_dash="dash", line_color="red", annotation_text="3级抄底 (-15%)", row=2, col=1)
@@ -155,7 +159,6 @@ try:
 
     with col_right:
         st.subheader("📜 历史触发记录 (近5年)")
-        # 筛选出触发抄底信号的日期
         triggers = df[df['BIAS200'] <= -5.0][['Close', 'BIAS200', 'RSI14']].copy()
         triggers['偏离度'] = triggers['BIAS200'].apply(lambda x: f"{x:.2f}%")
         triggers['RSI'] = triggers['RSI14'].apply(lambda x: f"{x:.1f}")
@@ -170,4 +173,4 @@ try:
             st.info("近5年未捕捉到偏离度 <= -5% 的记录。")
 
 except Exception as e:
-    st.error(f"数据加载失败，请检查网络或重试。错误信息: {e}")
+    st.error(f"数据加载失败，请检查网络或点击右上角刷新按钮。错误信息: {e}")
