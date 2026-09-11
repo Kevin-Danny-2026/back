@@ -31,7 +31,7 @@ st.markdown("""
         margin-bottom: 20px;
     }
 </style>
-""", unsafe_allow_allow_html=True)
+""", unsafe_allow_html=True)
 
 @st.cache_data(ttl=3600)  # 缓存1小时，保证获取最新数据
 def fetch_spx_data():
